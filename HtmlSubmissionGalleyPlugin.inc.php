@@ -22,14 +22,16 @@ class HtmlSubmissionGalleyPlugin extends GenericPlugin {
 	function register($category, $path, $mainContextId = null) {
 		if (!parent::register($category, $path, $mainContextId)) return false;
 		if ($this->getEnabled($mainContextId)) {
-			HookRegistry::register('ArticleHandler::view::galley', array($this, 'articleViewCallback'), HOOK_SEQUENCE_LATE);
-			HookRegistry::register('ArticleHandler::download', array($this, 'articleDownloadCallback'), HOOK_SEQUENCE_LATE);
+			HookRegistry::register('ArticleHandler::view::galley', array($this, 'submissionViewCallback'), HOOK_SEQUENCE_LATE);
+			HookRegistry::register('ArticleHandler::download', array($this, 'submissionDownloadCallback'), HOOK_SEQUENCE_LATE);
+			HookRegistry::register('PreprintHandler::view::galley', array($this, 'submissionViewCallback'), HOOK_SEQUENCE_LATE);
+			HookRegistry::register('PreprintHandler::download', array($this, 'submissionDownloadCallback'), HOOK_SEQUENCE_LATE);
 		}
 		return true;
 	}
 
 	/**
-	 * Install default settings on journal creation.
+	 * Install default settings on context creation.
 	 * @return string
 	 */
 	function getContextSpecificPluginSettingsFile() {
@@ -52,15 +54,26 @@ class HtmlSubmissionGalleyPlugin extends GenericPlugin {
 	}
 
 	/**
-	 * Present the article wrapper page.
+	 * Present the submission wrapper page.
 	 * @param string $hookName
 	 * @param array $args
 	 */
-	function articleViewCallback($hookName, $args) {
+	function submissionViewCallback($hookName, $args) {
+		$application = Application::get();
+		$applicationName = $application->getName();
 		$request =& $args[0];
-		$issue =& $args[1];
-		$galley =& $args[2];
-		$article =& $args[3];
+
+		if ($applicationName == "ojs2"){
+			$issue =& $args[1];
+			$galley =& $args[2];
+			$submission =& $args[3];
+			$page = 'article';
+		}
+		if ($applicationName == "ops"){
+			$galley =& $args[1];
+			$submission =& $args[2];
+			$page = 'preprint';
+		}	
 
 		if (!$galley) {
 			return false;
@@ -69,7 +82,7 @@ class HtmlSubmissionGalleyPlugin extends GenericPlugin {
 		$submissionFile = $galley->getFile();
 		$filepath = Services::get('file')->getPath($submissionFile->getData('fileId'));
 		if (Services::get('file')->fs->getMimetype($filepath) === 'text/html') {
-			foreach ($article->getData('publications') as $publication) {
+			foreach ($submission->getData('publications') as $publication) {
 				if ($publication->getId() === $galley->getData('publicationId')) {
 					$galleyPublication = $publication;
 					break;
@@ -77,12 +90,19 @@ class HtmlSubmissionGalleyPlugin extends GenericPlugin {
 			}
 			$templateMgr = TemplateManager::getManager($request);
 			$templateMgr->assign(array(
-				'issue' => $issue,
-				'article' => $article,
+				'page' => $page,
+				'submission' => $submission,
 				'galley' => $galley,
-				'isLatestPublication' => $article->getData('currentPublicationId') === $galley->getData('publicationId'),
+				'isLatestPublication' => $submission->getData('currentPublicationId') === $galley->getData('publicationId'),
 				'galleyPublication' => $galleyPublication,
 			));
+
+			if ($applicationName == "ojs2"){
+				$templateMgr->assign(array(
+					'issue' => $issue,
+				));
+			}
+
 			$templateMgr->display($this->getTemplateResource('display.tpl'));
 
 			return true;
@@ -92,12 +112,12 @@ class HtmlSubmissionGalleyPlugin extends GenericPlugin {
 	}
 
 	/**
-	 * Present rewritten article HTML.
+	 * Present rewritten submission HTML.
 	 * @param string $hookName
 	 * @param array $args
 	 */
-	function articleDownloadCallback($hookName, $args) {
-		$article =& $args[0];
+	function submissionDownloadCallback($hookName, $args) {
+		$submission =& $args[0];
 		$galley =& $args[1];
 		$fileId =& $args[2];
 		$request = Application::get()->getRequest();
@@ -109,7 +129,7 @@ class HtmlSubmissionGalleyPlugin extends GenericPlugin {
 		$submissionFile = $galley->getFile();
 		$filepath = Services::get('file')->getPath($submissionFile->getData('fileId'));
 		if (Services::get('file')->fs->getMimetype($filepath) === 'text/html' && $galley->getData('submissionFileId') == $fileId) {
-			if (!HookRegistry::call('HtmlArticleGalleyPlugin::articleDownload', array($article,  &$galley, &$fileId))) {
+			if (!HookRegistry::call('HtmlArticleGalleyPlugin::articleDownload', array($submission,  &$galley, &$fileId))) {
 				echo $this->_getHTMLContents($request, $galley);
 				$returner = true;
 				HookRegistry::call('HtmlArticleGalleyPlugin::articleDownloadFinished', array(&$returner));
@@ -124,10 +144,12 @@ class HtmlSubmissionGalleyPlugin extends GenericPlugin {
 	 * Return string containing the contents of the HTML file.
 	 * This function performs any necessary filtering, like image URL replacement.
 	 * @param $request PKPRequest
-	 * @param $galley ArticleGalley
+	 * @param $galley SubmissionGalley
 	 * @return string
 	 */
 	protected function _getHTMLContents($request, $galley) {
+		$application = Application::get();
+		$applicationName = $application->getName();
 		$submissionFile = $galley->getFile();
 		$submissionId = $submissionFile->getData('submissionId');
 		$contents = Services::get('file')->fs->read(Services::get('file')->getPath($submissionFile->getData('fileId')));
@@ -147,11 +169,11 @@ class HtmlSubmissionGalleyPlugin extends GenericPlugin {
 
 			if ($embeddableFile->getFileType()=='text/plain' || $embeddableFile->getFileType()=='text/css') $params['inline']='true';
 
-			// Ensure that the $referredArticle object refers to the article we want
-			if (!$referredArticle || $referredArticle->getId() != $submissionId) {
-				$referredArticle = $submissionDao->getById($submissionId);
+			// Ensure that the $referredSubmission object refers to the submission we want
+			if (!$referredSubmission || $referredSubmission->getId() != $submissionId) {
+				$referredSubmission = $submissionDao->getById($submissionId);
 			}
-			$fileUrl = $request->url(null, 'article', 'download', array($referredArticle->getBestId(), $galley->getBestGalleyId(), $embeddableFile->getId()), $params);
+			$fileUrl = $request->url(null, 'article', 'download', array($referredSubmission->getBestId(), $galley->getBestGalleyId(), $embeddableFile->getId()), $params);
 			$pattern = preg_quote(rawurlencode($embeddableFile->getLocalizedData('name')));
 
 			$contents = preg_replace(
@@ -181,7 +203,7 @@ class HtmlSubmissionGalleyPlugin extends GenericPlugin {
 		// Perform replacement for ojs://... URLs
 		$contents = preg_replace_callback(
 			'/(<[^<>]*")[Oo][Jj][Ss]:\/\/([^"]+)("[^<>]*>)/',
-			array($this, '_handleOjsUrl'),
+			array($this, '_handleAppUrl'),
 			$contents
 		);
 		if ($contents === null) error_log('PREG error in ' . __FILE__ . ' line ' . __LINE__ . ': ' . preg_last_error());
@@ -189,19 +211,22 @@ class HtmlSubmissionGalleyPlugin extends GenericPlugin {
 		$templateMgr = TemplateManager::getManager($request);
 		$contents = $templateMgr->loadHtmlGalleyStyles($contents, $embeddableFiles);
 
-		// Perform variable replacement for journal, issue, site info
-		$issueDao = DAORegistry::getDAO('IssueDAO'); /* @var $issueDao IssueDAO */
-		$issue = $issueDao->getBySubmissionId($submissionId);
+		// Perform variable replacement for context, issue, site info
 
-		$journal = $request->getJournal();
+		$context = $request->getContext();
 		$site = $request->getSite();
 
 		$paramArray = array(
-			'issueTitle' => $issue?$issue->getIssueIdentification():__('editor.article.scheduleForPublication.toBeAssigned'),
-			'journalTitle' => $journal->getLocalizedName(),
+			'contextTitle' => $context->getLocalizedName(),
 			'siteTitle' => $site->getLocalizedTitle(),
 			'currentUrl' => $request->getRequestUrl()
 		);
+
+		if ($applicationName == "ojs2"){
+			$issueDao = DAORegistry::getDAO('IssueDAO'); /* @var $issueDao IssueDAO */
+			$issue = $issueDao->getBySubmissionId($submissionId);
+			$paramArray['issueTitle'] = $issue?$issue->getIssueIdentification():__('editor.article.scheduleForPublication.toBeAssigned');
+		}
 
 		foreach ($paramArray as $key => $value) {
 			$contents = str_replace('{$' . $key . '}', $value, $contents);
@@ -210,7 +235,7 @@ class HtmlSubmissionGalleyPlugin extends GenericPlugin {
 		return $contents;
 	}
 
-	function _handleOjsUrl($matchArray) {
+	function _handleAppUrl($matchArray) {
 		$request = Application::get()->getRequest();
 		$url = $matchArray[2];
 		$anchor = null;
@@ -232,11 +257,35 @@ class HtmlSubmissionGalleyPlugin extends GenericPlugin {
 				$anchor
 				);
 				break;
+			case 'server':
+				$url = $request->url(
+				isset($urlParts[1]) ?
+				$urlParts[1] :
+				$request->getRequestedJournalPath(),
+				null,
+				null,
+				null,
+				null,
+				$anchor
+				);
+				break;
 			case 'article':
 				if (isset($urlParts[1])) {
 					$url = $request->url(
 							null,
 							'article',
+							'view',
+							$urlParts[1],
+							null,
+							$anchor
+					);
+				}
+				break;
+			case 'preprint':
+				if (isset($urlParts[1])) {
+					$url = $request->url(
+							null,
+							'preprint',
 							'view',
 							$urlParts[1],
 							null,
@@ -273,10 +322,10 @@ class HtmlSubmissionGalleyPlugin extends GenericPlugin {
 				break;
 			case 'public':
 				array_shift($urlParts);
-				$journal = $request->getJournal();
+				$context = $request->getContext();
 				import ('classes.file.PublicFileManager');
 				$publicFileManager = new PublicFileManager();
-				$url = $request->getBaseUrl() . '/' . $publicFileManager->getContextFilesPath($journal->getId()) . '/' . implode('/', $urlParts) . ($anchor?'#' . $anchor:'');
+				$url = $request->getBaseUrl() . '/' . $publicFileManager->getContextFilesPath($context->getId()) . '/' . implode('/', $urlParts) . ($anchor?'#' . $anchor:'');
 				break;
 		}
 		return $matchArray[1] . $url . $matchArray[3];

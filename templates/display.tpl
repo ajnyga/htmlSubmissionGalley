@@ -9,23 +9,23 @@
  *}
 <!DOCTYPE html>
 <html lang="{$currentLocale|replace:"_":"-"}" xml:lang="{$currentLocale|replace:"_":"-"}">
-{capture assign="pageTitleTranslated"}{translate key="article.pageTitle" title=$article->getLocalizedTitle()|escape}{/capture}
+{capture assign="pageTitleTranslated"}{translate key="article.pageTitle" title=$submission->getLocalizedTitle()|escape}{/capture}
 {include file="frontend/components/headerHead.tpl"}
 <body class="pkp_page_{$requestedPage|escape} pkp_op_{$requestedOp|escape}">
 
 	{* Header wrapper *}
 	<header class="header_view">
 
-		{capture assign="articleUrl"}{url page="article" op="view" path=$article->getBestId()}{/capture}
+		{capture assign="submissionUrl"}{url page="$page" op="view" path=$submission->getBestId()}{/capture}
 
-		<a href="{$articleUrl}" class="return">
+		<a href="{$submissionUrl}" class="return">
 			<span class="pkp_screen_reader">
-				{translate key="article.return"}
+				{translate key="submission.return"}
 			</span>
 		</a>
 
-		<a href="{$articleUrl}" class="title">
-			{$article->getLocalizedTitle()|escape}
+		<a href="{$submissionUrl}" class="title">
+			{$submission->getLocalizedTitle()|escape}
 		</a>
 	</header>
 
@@ -33,15 +33,15 @@
 		{if !$isLatestPublication}
 			<div class="galley_view_notice">
 				<div class="galley_view_notice_message" role="alert">
-					{translate key="submission.outdatedVersion" datePublished=$galleyPublication->getData('datePublished')|date_format:$dateFormatLong urlRecentVersion=$articleUrl}
+					{translate key="submission.outdatedVersion" datePublished=$galleyPublication->getData('datePublished')|date_format:$dateFormatLong urlRecentVersion=$submissionUrl}
 				</div>
 			</div>
 			{capture assign="htmlUrl"}
-				{url page="article" op="download" path=$article->getBestId()|to_array:'version':$galleyPublication->getId():$galley->getBestGalleyId() inline=true}
+				{url page="$page" op="download" path=$submission->getBestId()|to_array:'version':$galleyPublication->getId():$galley->getBestGalleyId() inline=true}
 			{/capture}
 		{else}
 			{capture assign="htmlUrl"}
-				{url page="article" op="download" path=$article->getBestId()|to_array:$galley->getBestGalleyId() inline=true}
+				{url page="$page" op="download" path=$submission->getBestId()|to_array:$galley->getBestGalleyId() inline=true}
 			{/capture}
 		{/if}
 		<iframe name="htmlFrame" src="{$htmlUrl}" title="{translate key="submission.representationOfTitle" representation=$galley->getLabel() title=$galleyPublication->getLocalizedFullTitle()|escape}" allowfullscreen webkitallowfullscreen></iframe>
